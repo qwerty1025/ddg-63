@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>點點綠排班戰略系統 v10.6 (互動視窗與多班表擴充)</title>
+    <title>點點綠排班戰略系統 v10.7 (手動新增排班擴充版)</title>
     
     <script src="https://unpkg.com/vue@3/dist/vue.global.js"></script>
     <script src="https://cdn.tailwindcss.com"></script>
@@ -19,9 +19,11 @@
         body { font-family: 'Noto Sans TC', sans-serif; background-color: #f8fafc; color: #334155; overflow: hidden; -webkit-tap-highlight-color: transparent;}
         .font-mono { font-family: 'JetBrains Mono', monospace; }
 
+        /* 捲軸與容器 */
         .custom-scroll::-webkit-scrollbar { width: 6px; height: 6px; }
         .custom-scroll::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 4px; }
         
+        /* 列印專用樣式 */
         @media print {
             @page { size: A4 portrait; margin: 8mm; }
             body * { visibility: hidden; }
@@ -34,17 +36,23 @@
         .print-card { border: 1px solid #cbd5e1; border-radius: 8px; padding: 12px; margin-bottom: 12px; page-break-inside: avoid; background: white; }
         .print-grid { display: grid; grid-template-columns: repeat(7, 1fr); gap: 4px; text-align: center; font-size: 0.85rem; }
         
-        /* 修改: 確保高度能隨內容彈性撐開 */
-        .print-day { border: 1px solid #e2e8f0; min-height: 90px; height: 100%; padding: 4px; display: flex; flex-direction: column; justify-content: flex-start; border-radius: 4px; transition: all 0.2s; }
+        /* 提升日曆格子高度，並支援內容撐開 */
+        .print-day { border: 1px solid #e2e8f0; min-height: 90px; height: auto; padding: 4px; display: flex; flex-direction: column; position: relative; justify-content: flex-start; border-radius: 4px; transition: all 0.2s; }
         .print-day:hover { border-color: #94a3b8; box-shadow: 0 2px 4px rgba(0,0,0,0.05); }
         .print-active { background-color: #f0fdf4; border-color: #86efac; }
 
+        /* 標記樣式 */
         .holiday-badge { font-size: 10px; color: #b91c1c; background-color: #fee2e2; border-radius: 4px; padding: 1px 4px; font-weight: 700; border: 1px solid #fca5a5; display: inline-block; margin-bottom: 2px;}
         .event-badge { font-size: 10px; color: #b45309; background-color: #fef3c7; border-radius: 4px; padding: 1px 4px; font-weight: 700; border: 1px solid #fcd34d; display: inline-block; margin-bottom: 2px;}
         .square-badge { font-size: 9px; border-radius: 4px; padding: 2px 4px; font-weight: 700; line-height: 1.2; text-align: left; width: 100%; margin-top: 2px; border-left-width: 3px; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
 
-        .shift-block { font-size: 12px; font-weight: 900; padding: 3px; border-radius: 4px; width: 100%; display: flex; flex-direction: column; align-items: center; justify-content: center;}
+        /* 班表區塊 (多班表) */
+        .shift-block { font-size: 12px; font-weight: 900; padding: 3px; border-radius: 4px; width: 100%; display: flex; flex-direction: column; align-items: center; justify-content: center; margin-top: 4px;}
         .shift-note { font-size: 9px; padding: 2px; border-radius: 4px; font-weight: 500; margin-top: 2px; line-height: 1.1; width: 100%; }
+
+        /* 色彩戰略標籤 */
+        .filter-chip { transition: all 0.2s; cursor: pointer; user-select: none; }
+        .filter-chip.inactive { opacity: 0.4; filter: grayscale(80%); }
 
         .toggle-btn { opacity: 0.7; transition: opacity 0.3s; }
         .toggle-btn:hover { opacity: 1; }
@@ -56,6 +64,7 @@
 
 <div id="app" v-cloak class="h-[100dvh] flex flex-col relative">
 
+    <!-- Header 頂部導航 -->
     <header class="h-14 bg-slate-900 text-white flex items-center justify-between px-3 md:px-4 shadow-md z-50 shrink-0 no-print">
         <div class="flex items-center gap-2 md:gap-4 overflow-hidden">
             <div class="flex items-center gap-2 shrink-0">
@@ -75,55 +84,194 @@
         </div>
     </header>
 
-    <!-- 班表互動編輯視窗 (Modal) -->
-    <div v-if="shiftModal.show" class="absolute inset-0 bg-slate-900/80 z-[70] flex items-center justify-center p-4 no-print backdrop-blur-sm transition-opacity">
-        <div class="bg-white w-full max-w-sm rounded-xl shadow-2xl overflow-hidden">
-            <div class="bg-slate-800 text-white p-4 flex justify-between items-center">
-                <h3 class="font-bold text-lg"><i class="fa-solid fa-pen-to-square mr-2 text-indigo-400"></i>班表編輯 ({{ shiftModal.data.date }})</h3>
-                <button @click="shiftModal.show = false" class="text-slate-400 hover:text-white"><i class="fa-solid fa-times text-xl"></i></button>
+    <!-- 匯出資料選擇器 (Modal) -->
+    <div v-if="showExportModal" class="absolute inset-0 bg-slate-900/90 z-[60] flex items-center justify-center p-4 no-print" @click.self="showExportModal = false">
+        <div class="bg-white w-full max-w-md rounded-xl shadow-2xl p-6">
+            <div class="flex justify-between items-center mb-4 border-b pb-4">
+                <h3 class="font-bold text-xl text-slate-800"><i class="fa-solid fa-file-export text-indigo-600 mr-2"></i>匯出區間排班資料</h3>
+                <button @click="showExportModal = false" class="text-slate-400 hover:text-slate-600 text-xl"><i class="fa-solid fa-times"></i></button>
+            </div>
+            <div class="grid grid-cols-2 gap-4 mb-6">
+                <div>
+                    <label class="block text-xs font-bold mb-1.5 text-slate-700">開始日期</label>
+                    <input type="date" v-model="exportStart" class="w-full border-2 border-slate-200 p-2 rounded-lg focus:border-indigo-500 outline-none">
+                </div>
+                <div>
+                    <label class="block text-xs font-bold mb-1.5 text-slate-700">結束日期</label>
+                    <input type="date" v-model="exportEnd" class="w-full border-2 border-slate-200 p-2 rounded-lg focus:border-indigo-500 outline-none">
+                </div>
+            </div>
+            <div class="flex justify-end gap-2">
+                <button @click="showExportModal = false" class="px-5 py-2 text-slate-500 bg-slate-100 rounded-lg hover:bg-slate-200 font-bold transition">取消</button>
+                <button @click="exportData" class="px-5 py-2 bg-indigo-600 text-white font-bold rounded-lg hover:bg-indigo-700 shadow transition flex items-center"><i class="fa-solid fa-download mr-2"></i> 下載 CSV</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- 原始資料載入器 -->
+    <div v-if="showInput" class="absolute inset-0 bg-slate-900/90 z-[60] flex items-center justify-center p-4 no-print" @click.self="showInput = false">
+        <div class="bg-white w-full max-w-4xl rounded-xl shadow-2xl h-[80vh] flex flex-col p-6">
+            <div class="flex justify-between items-center mb-4 border-b pb-4">
+                <h3 class="font-bold text-xl text-slate-800"><i class="fa-solid fa-database text-emerald-600 mr-2"></i>資料庫強制覆寫 (CSV)</h3>
+                <div>
+                    <button @click="processCSV" class="bg-emerald-600 hover:bg-emerald-700 transition text-white px-5 py-2 rounded-lg font-bold mr-3 shadow">執行覆寫</button>
+                    <button @click="showInput = false" class="text-slate-400 hover:text-slate-600 text-xl"><i class="fa-solid fa-times"></i></button>
+                </div>
+            </div>
+            <textarea v-model="csvInput" class="flex-grow p-4 font-mono text-sm border-2 border-slate-200 rounded-lg focus:border-emerald-500 outline-none resize-none" placeholder="貼上 CSV 內容..."></textarea>
+        </div>
+    </div>
+
+    <!-- 新增排班彈窗 (點擊日曆日期觸發) -->
+    <div v-if="showAddModal" class="absolute inset-0 bg-slate-900/60 z-[75] flex items-center justify-center p-4 no-print" @click.self="showAddModal = false">
+        <div class="bg-white w-full max-w-sm rounded-xl shadow-2xl p-5 border-t-8 border-emerald-500">
+            <div class="flex justify-between items-start mb-4 border-b pb-3">
+                <div>
+                    <h3 class="font-bold text-lg text-slate-800"><i class="fa-solid fa-plus-circle text-emerald-500 mr-2"></i>手動新增排班</h3>
+                    <p class="text-xs text-slate-500">{{ newShiftForm.date }} | {{ newShiftForm.staff }}</p>
+                </div>
+                <button @click="showAddModal = false" class="text-slate-400 hover:text-slate-600"><i class="fa-solid fa-times text-xl"></i></button>
             </div>
             
-            <div class="p-5">
-                <div class="mb-5">
-                    <label class="block text-xs font-bold mb-1.5 text-slate-700">顯示標題 (站點名稱)</label>
-                    <input type="text" v-model="shiftModal.stationInput" class="w-full border-2 border-slate-200 p-2.5 rounded-lg focus:border-indigo-500 outline-none font-bold text-slate-800 transition">
+            <div class="space-y-4">
+                <div>
+                    <label class="block text-xs font-bold mb-1 text-slate-700">排班類別</label>
+                    <select v-model="newShiftForm.locationType" class="w-full border-2 border-slate-200 rounded p-2 text-sm focus:border-emerald-500 outline-none font-bold text-slate-700">
+                        <option value="點點綠">點點綠 (正式)</option>
+                        <option value="點點綠預排">預排班表 (點點綠)</option>
+                        <option value="希望廣場">希望廣場</option>
+                        <option value="花博">花博市集</option>
+                        <option value="特殊邀請">特殊邀請</option>
+                        <option value="其他">食農 / 其他</option>
+                    </select>
+                </div>
+                <div>
+                    <label class="block text-xs font-bold mb-1 text-slate-700">站點名稱 (必填)</label>
+                    <input type="text" v-model="newShiftForm.station" placeholder="例如: 雙連站、台中週..." class="w-full border-2 border-slate-200 rounded p-2 text-sm focus:border-emerald-500 outline-none">
+                </div>
+                <div>
+                    <label class="block text-xs font-bold mb-1 text-slate-700">備註 (選填)</label>
+                    <input type="text" v-model="newShiftForm.note" placeholder="例如: 早上、下午、搭車..." class="w-full border-2 border-slate-200 rounded p-2 text-sm focus:border-emerald-500 outline-none">
                 </div>
                 
-                <div class="flex flex-col gap-2.5">
-                    <!-- 預排專屬按鈕 -->
-                    <button v-if="shiftModal.data.status === 'pre_scheduled'" @click="confirmPreSchedule" class="w-full py-2.5 bg-emerald-600 text-white font-bold rounded-lg hover:bg-emerald-700 shadow transition flex items-center justify-center">
-                        <i class="fa-solid fa-check-circle mr-2"></i>確定為正式排班
-                    </button>
-                    
-                    <!-- 刪除控制 -->
-                    <button v-if="shiftModal.data.status !== 'deleting' && shiftModal.data.status !== 'leave'" @click="requestDelete" class="w-full py-2.5 bg-red-500 text-white font-bold rounded-lg hover:bg-red-600 shadow transition flex items-center justify-center">
-                        <i class="fa-solid fa-trash-can mr-2"></i>{{ shiftModal.data.status === 'pre_scheduled' ? '提出刪除 (轉為刪除中)' : '提出刪除 (轉為刪除中)' }}
-                    </button>
-                    
-                    <!-- 恢復控制 -->
-                    <button v-if="shiftModal.data.status === 'deleting'" @click="cancelDelete" class="w-full py-2.5 bg-orange-500 text-white font-bold rounded-lg hover:bg-orange-600 shadow transition flex items-center justify-center">
-                        <i class="fa-solid fa-rotate-left mr-2"></i>取消刪除 (恢復預排)
-                    </button>
+                <button @click="saveNewShift" class="w-full bg-emerald-600 hover:bg-emerald-700 text-white font-bold py-2.5 rounded shadow transition mt-2">
+                    確認新增
+                </button>
+            </div>
+        </div>
+    </div>
 
-                    <!-- 純更新標題 -->
-                    <button @click="updateShiftTitle" class="w-full py-2.5 bg-indigo-100 text-indigo-700 font-bold rounded-lg hover:bg-indigo-200 transition">僅儲存標題變更</button>
+    <!-- 班表編輯/刪除彈窗 -->
+    <div v-if="showShiftEditor" class="absolute inset-0 bg-slate-900/60 z-[70] flex items-center justify-center p-4 no-print" @click.self="showShiftEditor = false">
+        <div class="bg-white w-full max-w-sm rounded-xl shadow-2xl p-5 border-t-8" :class="getBorderColorClass(editingShift)">
+            <div class="flex justify-between items-start mb-3">
+                <div>
+                    <h3 class="font-bold text-lg text-slate-800">管理班表</h3>
+                    <p class="text-xs text-slate-500">{{ editingShift.date }} | {{ editingShift.station }}</p>
+                </div>
+                <button @click="showShiftEditor = false" class="text-slate-400 hover:text-slate-600"><i class="fa-solid fa-times text-xl"></i></button>
+            </div>
+            
+            <div class="my-4">
+                <!-- 預排狀態的操作 -->
+                <div v-if="editingShift.status === 'pre_scheduled'" class="space-y-2">
+                    <div class="p-2 bg-orange-50 border border-orange-200 text-orange-800 text-xs rounded mb-4 font-bold flex items-center">
+                        <i class="fa-solid fa-circle-exclamation mr-2"></i> 此為預排班表
+                    </div>
+                    <button @click="confirmOfficial(editingShift)" class="w-full bg-slate-800 hover:bg-slate-900 text-white font-bold py-2.5 rounded shadow transition flex justify-center items-center">
+                        <i class="fa-solid fa-check mr-2"></i> 確定轉為正式排班
+                    </button>
+                    <button @click="markAsDeleting(editingShift)" class="w-full bg-red-100 hover:bg-red-200 text-red-700 font-bold py-2.5 rounded border border-red-200 transition flex justify-center items-center">
+                        <i class="fa-solid fa-hourglass-half mr-2"></i> 回報刪除 (標記為刪除中)
+                    </button>
+                </div>
+
+                <!-- 刪除中狀態的操作 -->
+                <div v-else-if="editingShift.status === 'deleting'" class="space-y-2">
+                    <div class="p-2 bg-red-50 border border-red-200 text-red-800 text-xs rounded mb-4 font-bold flex items-center">
+                        <i class="fa-solid fa-spinner fa-spin mr-2"></i> 等待主任確認刪除中...
+                    </div>
+                    <button @click="revertToPreScheduled(editingShift)" class="w-full bg-orange-100 hover:bg-orange-200 text-orange-700 font-bold py-2.5 rounded border border-orange-200 transition">
+                        復原為預排
+                    </button>
+                    <button @click="hardDeleteShift(editingShift)" class="w-full bg-red-600 hover:bg-red-700 text-white font-bold py-2.5 rounded shadow transition flex justify-center items-center">
+                        <i class="fa-solid fa-trash mr-2"></i> 徹底刪除
+                    </button>
+                </div>
+
+                <!-- 一般狀態的操作 -->
+                <div v-else class="space-y-2">
+                    <button @click="markAsDeleting(editingShift)" class="w-full bg-red-100 hover:bg-red-200 text-red-700 font-bold py-2.5 rounded border border-red-200 transition flex justify-center items-center">
+                        <i class="fa-solid fa-trash-can mr-2"></i> 提出請假 / 回報刪除
+                    </button>
                 </div>
             </div>
         </div>
     </div>
 
-    <!-- 匯出與 CSV 載入等 Modal (省略部分原始碼以確保精簡，維持上一版結構) -->
-    <!-- ... (匯出 Modal 與 CSV Modal 內容維持上一版的寫法) ... -->
-
-    <!-- 季度戰略分析面板 (支援至 P6) (維持上一版寫法) -->
+    <!-- 季度戰略分析面板 (支援至 P6) -->
     <main v-if="currentView === 'analysis'" class="flex-grow p-2 md:p-4 overflow-hidden relative bg-slate-100 flex flex-col">
-       <!-- ... (分析表格內容維持上一版寫法) ... -->
-       <div class="h-full bg-white rounded-xl shadow-sm overflow-hidden flex flex-col border border-slate-200">
-           <div class="p-3 md:p-4 border-b bg-slate-50 flex justify-between items-center flex-wrap gap-2">
-               <h3 class="font-bold text-base md:text-lg text-slate-700"><i class="fa-solid fa-chart-line text-emerald-500 mr-2"></i>季度戰略面板 (P3 ~ P6)</h3>
-           </div>
-           <div class="p-8 text-center text-slate-500">此頁面為展示，切換回日曆查看新功能。</div>
-       </div>
+        <div class="h-full bg-white rounded-xl shadow-sm overflow-hidden flex flex-col border border-slate-200">
+            <div class="p-3 md:p-4 border-b bg-slate-50 flex justify-between items-center flex-wrap gap-2">
+                <h3 class="font-bold text-base md:text-lg text-slate-700"><i class="fa-solid fa-chart-line text-emerald-500 mr-2"></i>季度戰略面板 (P3 ~ P6)</h3>
+                <div class="text-[10px] md:text-xs text-slate-500 font-medium bg-white px-2 py-1 rounded-full border shadow-sm">🌱 基準：$800 | 10~19場: $720 | 20場+: $680</div>
+            </div>
+            <div class="overflow-x-auto p-0 md:p-4 custom-scroll flex-grow">
+                <table class="w-full text-sm text-left border-collapse min-w-[1200px]">
+                    <thead class="bg-slate-100 sticky top-0 text-slate-600 z-10 shadow-sm font-bold tracking-wide">
+                        <tr>
+                            <th class="px-3 py-3 border-b-2 bg-slate-200 sticky left-0 z-20" rowspan="2">廠商名稱</th>
+                            <th class="px-2 py-2 text-center bg-purple-100/80 text-purple-900 border-l border-r border-b" colspan="3">P3 (5 ~ 7 月)</th>
+                            <th class="px-2 py-2 text-center bg-amber-100/80 text-amber-900 border-r border-b" colspan="3">P4 (8 ~ 10 月)</th>
+                            <th class="px-2 py-2 text-center bg-teal-100/80 text-teal-900 border-r border-b" colspan="3">P5 (11 ~ 1 月)</th>
+                            <th class="px-2 py-2 text-center bg-sky-100/80 text-sky-900 border-b" colspan="3">P6 (2 ~ 4 月)</th>
+                        </tr>
+                        <tr class="bg-slate-50">
+                            <!-- P3 -->
+                            <th class="px-2 py-2 text-center border-l border-b text-purple-700">總場</th>
+                            <th class="px-2 py-2 text-center border-b text-slate-500 font-normal text-xs">雙/士/石/北</th>
+                            <th class="px-2 py-2 text-right border-b text-purple-900 border-r">預估攤租</th>
+                            <!-- P4 -->
+                            <th class="px-2 py-2 text-center border-b text-amber-700">總場</th>
+                            <th class="px-2 py-2 text-center border-b text-slate-500 font-normal text-xs">雙/士/石/北</th>
+                            <th class="px-2 py-2 text-right border-b text-amber-900 border-r">預估攤租</th>
+                            <!-- P5 -->
+                            <th class="px-2 py-2 text-center border-b text-teal-700">總場</th>
+                            <th class="px-2 py-2 text-center border-b text-slate-500 font-normal text-xs">雙/士/石/北</th>
+                            <th class="px-2 py-2 text-right border-b text-teal-900 border-r">預估攤租</th>
+                            <!-- P6 -->
+                            <th class="px-2 py-2 text-center border-b text-sky-700">總場</th>
+                            <th class="px-2 py-2 text-center border-b text-slate-500 font-normal text-xs">雙/士/石/北</th>
+                            <th class="px-2 py-2 text-right border-b text-sky-900">預估攤租</th>
+                        </tr>
+                    </thead>
+                    <tbody class="divide-y divide-slate-100">
+                        <tr v-for="stat in analysisStats" :key="stat.name" :class="stat.name === '五寮尖山羊乳' ? 'bg-orange-50 font-bold' : 'hover:bg-slate-50 transition'">
+                            <td class="px-3 py-2 border-r flex items-center gap-1.5 sticky left-0 bg-white shadow-[2px_0_5px_-2px_rgba(0,0,0,0.1)] z-10 whitespace-nowrap">
+                                <span v-if="stat.name === '五寮尖山羊乳'" class="text-orange-500"><i class="fa-solid fa-star"></i></span>
+                                {{ stat.name }}
+                            </td>
+                            <!-- P3 -->
+                            <td class="px-2 py-2 text-center text-base" :class="getRowColor(stat.p3Tier)">{{ stat.p3Count }}</td>
+                            <td class="px-2 py-2 text-center font-mono text-[10px] text-slate-500">{{ stat.p3Dist }}</td>
+                            <td class="px-2 py-2 text-right font-bold text-purple-900 border-r bg-purple-50/30">${{ stat.p3Rev.toLocaleString() }}</td>
+                            <!-- P4 -->
+                            <td class="px-2 py-2 text-center text-base" :class="getRowColor(stat.p4Tier)">{{ stat.p4Count }}</td>
+                            <td class="px-2 py-2 text-center font-mono text-[10px] text-slate-500">{{ stat.p4Dist }}</td>
+                            <td class="px-2 py-2 text-right font-bold text-amber-900 border-r bg-amber-50/30">${{ stat.p4Rev.toLocaleString() }}</td>
+                            <!-- P5 -->
+                            <td class="px-2 py-2 text-center text-base" :class="getRowColor(stat.p5Tier)">{{ stat.p5Count }}</td>
+                            <td class="px-2 py-2 text-center font-mono text-[10px] text-slate-500">{{ stat.p5Dist }}</td>
+                            <td class="px-2 py-2 text-right font-bold text-teal-900 border-r bg-teal-50/30">${{ stat.p5Rev.toLocaleString() }}</td>
+                            <!-- P6 -->
+                            <td class="px-2 py-2 text-center text-base" :class="getRowColor(stat.p6Tier)">{{ stat.p6Count }}</td>
+                            <td class="px-2 py-2 text-center font-mono text-[10px] text-slate-500">{{ stat.p6Dist }}</td>
+                            <td class="px-2 py-2 text-right font-bold text-sky-900 bg-sky-50/30">${{ stat.p6Rev.toLocaleString() }}</td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+        </div>
     </main>
 
     <!-- 班表列印與日曆調度頁面 -->
@@ -131,93 +279,122 @@
         
         <!-- 左側面板遮罩 -->
         <div v-if="showLeftSidebar" @click="showLeftSidebar = false" class="absolute inset-0 bg-slate-900/60 z-30 md:hidden no-print transition-opacity"></div>
-        <button v-if="!showLeftSidebar" @click="showLeftSidebar = true" class="absolute top-4 left-4 bg-slate-800 text-white font-bold px-3 py-2 rounded-lg text-sm z-20 shadow-lg no-print toggle-btn"><i class="fa-solid fa-chevron-right mr-1"></i> 設定</button>
+        <button v-if="!showLeftSidebar" @click="showLeftSidebar = true" class="absolute top-4 left-4 bg-slate-800 text-white font-bold px-3 py-2 rounded-lg text-sm z-20 shadow-lg no-print toggle-btn">
+            <i class="fa-solid fa-chevron-right mr-1"></i> 設定
+        </button>
 
-        <!-- 左側：調度與列印設定 (維持上一版內容) -->
+        <!-- 左側：調度與列印設定 -->
         <div v-show="showLeftSidebar" class="absolute md:relative inset-y-0 left-0 w-[85%] sm:w-[300px] md:w-[280px] lg:w-[300px] bg-white p-4 border-r border-slate-200 h-full overflow-y-auto no-print shrink-0 custom-scroll z-40 md:z-20 transition-transform shadow-2xl md:shadow-none">
-            <!-- ... 左側內容維持上一版 ... -->
             <div class="flex justify-between items-center mb-4 border-b pb-3">
-                <h3 class="font-bold text-lg text-slate-800"><i class="fa-solid fa-sliders text-indigo-500 mr-2"></i>調度與設定</h3>
-                <button @click="showLeftSidebar = false" class="bg-slate-100 hover:bg-slate-200 text-slate-600 w-8 h-8 rounded-full transition flex items-center justify-center"><i class="fa-solid fa-times md:hidden"></i><i class="fa-solid fa-chevron-left hidden md:block"></i></button>
+                <h3 class="font-bold text-lg text-slate-800"><i class="fa-solid fa-sliders text-indigo-500 mr-2"></i>調度設定</h3>
+                <button @click="showLeftSidebar = false" class="bg-slate-100 text-slate-600 w-8 h-8 rounded-full flex items-center justify-center transition hover:bg-slate-200"><i class="fa-solid fa-chevron-left"></i></button>
             </div>
+            
             <div class="mb-5">
                 <label class="block text-xs font-bold mb-1.5 text-slate-700">1. 目標廠商篩選</label>
-                <select v-model="printTarget" class="w-full border-2 border-slate-200 rounded-lg p-2 text-sm bg-slate-50 focus:border-indigo-500 font-bold text-slate-800">
+                <select v-model="printTarget" class="w-full border-2 border-slate-200 rounded-lg p-2 text-sm bg-slate-50 focus:border-indigo-500 outline-none font-bold text-slate-800">
                     <option v-for="s in uniqueStaffList" :value="s">{{s}}</option>
                 </select>
             </div>
+
+            <!-- 即時戰略計算 Widget -->
+            <div class="mb-5 bg-emerald-50 p-3 rounded-lg border border-emerald-200 shadow-sm">
+                <h4 class="font-bold text-emerald-800 mb-2 text-xs flex items-center"><i class="fa-solid fa-calculator mr-1"></i> 即時費用試算 (顯示之月份)</h4>
+                <div class="flex justify-between items-center mb-1.5 bg-white px-2 py-1.5 rounded shadow-sm">
+                    <span class="text-xs font-bold text-emerald-700">總排班數</span>
+                    <span class="font-black text-sm text-emerald-900">{{ currentDisplayStats.count }} <span class="text-[10px] font-normal">場</span></span>
+                </div>
+                <div class="flex justify-between items-center bg-white px-2 py-1.5 rounded shadow-sm">
+                    <span class="text-xs font-bold text-emerald-700">預估費用</span>
+                    <span class="font-black text-sm text-emerald-900"><span class="text-[10px] font-normal">NT$</span> {{ currentDisplayStats.cost.toLocaleString() }}</span>
+                </div>
+                <div class="text-[9px] text-emerald-600 mt-1 text-right font-bold">
+                    (適用基準費率: ${{ currentDisplayStats.rate }}/場)
+                </div>
+            </div>
+
             <div class="mb-5">
-                <label class="block text-xs font-bold mb-1.5 text-slate-700">2. 顯示月份</label>
+                <label class="block text-xs font-bold mb-1.5 text-slate-700 flex justify-between">
+                    <span>2. 顯示月份 (雲端同步)</span>
+                    <span v-if="isSavingSettings" class="text-emerald-500 text-[10px]"><i class="fa-solid fa-spinner fa-spin"></i> 儲存中</span>
+                </label>
                 <div class="grid grid-cols-2 gap-1.5 max-h-48 overflow-y-auto custom-scroll pr-1">
-                    <label v-for="m in allMonths" :key="m" class="flex items-center p-1.5 border-2 rounded cursor-pointer text-xs" :class="printMonths.includes(m) ? 'border-indigo-500 bg-indigo-50 text-indigo-800 font-bold' : 'bg-slate-50 text-slate-600'">
+                    <label v-for="m in allMonths" :key="m" class="flex items-center p-1.5 border-2 rounded cursor-pointer transition select-none text-xs" :class="printMonths.includes(m) ? 'border-indigo-500 bg-indigo-50 text-indigo-800 font-bold' : 'border-slate-100 hover:bg-slate-50 text-slate-600'">
                         <input type="checkbox" :value="m" v-model="printMonths" class="hidden"> 
                         <i class="fa-solid fa-calendar-days mr-1.5 opacity-50"></i> {{m}}
                     </label>
                 </div>
             </div>
+
+            <div class="mb-5">
+                <label class="block text-xs font-bold mb-1.5 text-slate-700">3. 表頭聯絡資訊 (列印用)</label>
+                <textarea v-model="contactInfo" class="w-full border-2 border-slate-200 rounded-lg p-2 text-xs h-16 bg-slate-50 focus:border-indigo-500 outline-none resize-none"></textarea>
+            </div>
+
             <div class="mt-4 pt-4 border-t">
-                <button @click="printNow" class="w-full bg-slate-800 hover:bg-black text-white py-3 rounded-lg font-bold shadow transition text-sm flex items-center justify-center gap-2"><i class="fa-solid fa-print"></i> 列印為 A4</button>
+                <button @click="printNow" class="w-full bg-slate-800 hover:bg-black text-white py-3 rounded-lg font-bold shadow transition text-sm flex items-center justify-center gap-2">
+                    <i class="fa-solid fa-print"></i> 列印為 A4 格式
+                </button>
             </div>
         </div>
 
         <!-- 中間：排版區 -->
         <div id="print-area" class="flex-grow p-3 md:p-6 overflow-y-auto custom-scroll relative">
-            <div class="flex flex-col md:flex-row justify-between items-start md:items-end mb-4 md:mb-6 border-b-4 border-slate-800 pb-3 gap-4">
+            <div class="flex flex-col md:flex-row justify-between items-start md:items-end mb-4 border-b-4 border-slate-800 pb-3 gap-4">
                 <div>
                     <h1 class="text-xl md:text-3xl font-black text-slate-900 tracking-tight mb-1">{{ printTarget }} 出席戰略班表</h1>
+                    <pre class="text-xs md:text-sm text-slate-600 font-sans whitespace-pre-wrap font-medium no-print">{{ contactInfo }}</pre>
                 </div>
-                
-                <div class="flex items-center gap-1.5 md:gap-2 no-print bg-slate-200 p-1 md:p-1.5 rounded-lg shadow-inner self-end md:self-auto">
-                    <button @click="calendarLayout = 1" :class="{'bg-white shadow-sm': calendarLayout === 1}" class="px-2 py-1 text-xs rounded font-bold transition">單排</button>
-                    <button @click="calendarLayout = 2" :class="{'bg-white shadow-sm': calendarLayout === 2}" class="px-2 py-1 text-xs rounded font-bold transition">雙排</button>
+                <!-- 佈局切換 -->
+                <div class="flex items-center gap-1.5 no-print bg-slate-200 p-1 rounded-lg shadow-inner">
+                    <button @click="calendarLayout = 1" :class="{'bg-white shadow-sm text-slate-800': calendarLayout === 1}" class="px-3 py-1 text-xs rounded font-bold transition">單排</button>
+                    <button @click="calendarLayout = 2" :class="{'bg-white shadow-sm text-slate-800': calendarLayout === 2}" class="px-3 py-1 text-xs rounded font-bold transition">雙排</button>
+                    <button @click="calendarLayout = 3" :class="{'bg-white shadow-sm text-slate-800': calendarLayout === 3}" class="hidden md:inline-block px-3 py-1 text-xs rounded font-bold transition">三排</button>
                 </div>
             </div>
 
             <!-- 日曆網格 -->
-            <div class="print-grid-layout grid gap-4 md:gap-6" :class="{'grid-cols-1': calendarLayout === 1, 'grid-cols-1 xl:grid-cols-2': calendarLayout === 2}">
+            <div class="print-grid-layout grid gap-6" :class="{'grid-cols-1': calendarLayout === 1, 'grid-cols-1 xl:grid-cols-2': calendarLayout === 2, 'grid-cols-1 lg:grid-cols-2 xl:grid-cols-3': calendarLayout === 3}">
                 <div v-for="month in selectedMonthData" :key="month.label" class="print-card shadow-sm break-inside-avoid">
                     <h3 class="text-lg md:text-xl font-black text-center bg-slate-800 text-white py-1.5 mb-3 rounded tracking-widest">{{ month.label }}</h3>
                     <div>
-                        <div class="print-grid mb-1.5 border-b-2 border-slate-200 pb-1.5 font-bold text-slate-600 text-xs md:text-sm">
+                        <div class="print-grid mb-1.5 border-b-2 border-slate-200 pb-1.5 font-bold text-slate-600 text-xs">
                             <div>一</div><div>二</div><div>三</div><div>四</div><div>五</div><div class="text-red-600">六</div><div class="text-red-600">日</div>
                         </div>
                         
-                        <div class="print-grid items-stretch">
-                            <div v-for="d in month.days" :key="d.dateStr" class="print-day" :class="{'print-active': d.shifts && d.shifts.length > 0, 'bg-slate-50 border-dashed border-slate-200': !d.isCurrent}">
+                        <div class="print-grid">
+                            <div v-for="d in month.days" :key="d.dateStr" class="print-day" :class="{'print-active': d.shifts.length > 0 && d.shifts.some(s => s.status === 'normal' || s.status === 'pre_scheduled'), 'bg-slate-50 border-dashed border-slate-200': !d.isCurrent}">
                                 
-                                <div class="flex justify-between items-start w-full" :class="{'cursor-pointer hover:bg-slate-200/50 transition rounded-t p-0.5': d.isCurrent}">
+                                <!-- 點擊日期頭部即可新增排班 -->
+                                <div class="flex justify-between items-start w-full cursor-pointer hover:bg-slate-200/50 transition rounded-t p-0.5" @click.stop="d.isCurrent && openAddShift(d.dateStr)">
                                     <div class="flex flex-col items-start max-w-[75%]">
                                         <span v-if="d.isHoliday && d.isCurrent" class="holiday-badge">{{ d.holidayName }}</span>
+                                        <span v-if="d.isFarmEvent && d.isCurrent && printTarget === '五寮尖山羊乳'" class="event-badge text-blue-800 bg-blue-100 border-blue-300">{{ d.farmEventName }}</span>
+                                        <span v-if="d.isHopeSquare && d.isCurrent" class="square-badge pointer-events-none" :class="d.hopeSquareName.includes('新北市自籌') ? 'bg-purple-100 text-purple-900 border-purple-400' : 'bg-emerald-100 text-emerald-900 border-emerald-400'">
+                                            <i class="fa-solid fa-leaf text-[8px]"></i> {{ d.hopeSquareName }}
+                                        </span>
                                     </div>
-                                    <div class="text-right text-xs font-bold pt-0.5 pr-0.5" :class="d.isCurrent ? (d.isHoliday || d.isWeekend ? 'text-red-600' : 'text-slate-700') : 'text-slate-300'">{{ d.dayNum }}</div>
-                                </div>
-                                
-                                <div v-if="d.isHopeSquare && d.isCurrent" class="square-badge pointer-events-none bg-emerald-100 text-emerald-900 border-emerald-400" :title="d.hopeSquareName">
-                                    <i class="fa-solid fa-leaf text-[8px]"></i> {{ d.hopeSquareName }}
+                                    <div class="text-right text-xs font-bold pt-0.5 pr-0.5" :class="d.isCurrent ? (d.isWeekend ? 'text-red-600' : 'text-slate-700') : 'text-slate-300'">{{ d.dayNum }}</div>
                                 </div>
 
-                                <!-- 修改為支援陣列的多筆班表渲染 (動態撐高) -->
-                                <div class="flex-grow flex flex-col justify-end p-0.5 mt-auto w-full space-y-1">
-                                    <template v-if="d.shifts && d.shifts.length > 0">
-                                        <div v-for="shift in d.shifts" :key="shift.id" class="cursor-pointer hover:opacity-80 transition w-full" @click.stop="openShiftModal(shift)">
-                                            <div class="shift-block text-center whitespace-normal break-words" :class="getShiftColorClass(shift)">
-                                                <span v-if="formatLocationType(shift) !== '點點綠' && shift.status !== 'leave'" class="text-[8px] bg-white/30 px-1 rounded-sm mb-0.5 leading-none py-0.5 font-bold shadow-sm">
-                                                    {{ formatLocationType(shift) }}
-                                                </span>
-                                                <span class="text-[10px] md:text-[12px] leading-tight">{{ shift.station }}</span>
-                                            </div>
+                                <!-- 多班表渲染區 (依賴高度自適應) -->
+                                <div class="flex-grow flex flex-col justify-start p-0.5 mt-1 w-full gap-1">
+                                    <div v-for="shift in d.shifts" :key="shift.id" class="cursor-pointer hover:opacity-80 transition w-full" @click.stop="openShiftEditor(shift)" title="點擊管理班表">
+                                        <div class="shift-block text-center" :class="getShiftColorClass(shift)">
+                                            <!-- 狀態/類型標籤 -->
+                                            <span v-if="shift.status === 'deleting'" class="text-[9px] bg-red-800 text-white px-1 rounded-sm mb-0.5 w-full font-bold">刪除中...</span>
+                                            <span v-else-if="shift.status === 'pre_scheduled'" class="text-[9px] bg-white/30 px-1 rounded-sm mb-0.5 text-orange-100 font-bold w-full">預排</span>
+                                            <span v-else-if="shift.locationType && shift.locationType !== '點點綠'" class="text-[9px] bg-white/30 px-1 rounded-sm mb-0.5 w-full">{{ shift.locationType }}</span>
                                             
-                                            <!-- 狀態提示 -->
-                                            <div v-if="shift.status === 'leave'" class="shift-note bg-red-600 text-white text-center font-bold">已請假</div>
-                                            <div v-if="shift.status === 'deleting'" class="shift-note bg-slate-500 text-white text-center font-bold animate-pulse"><i class="fa-solid fa-spinner fa-spin mr-1"></i>刪除中</div>
+                                            <span class="text-[10px] md:text-[11px] font-bold leading-tight truncate px-0.5 w-full">{{ shift.station }}</span>
                                         </div>
-                                    </template>
-                                    
-                                    <div v-else-if="d.isCurrent" class="w-full h-7 mt-1 cursor-pointer bg-slate-100 hover:bg-slate-200 border border-slate-200 border-dashed rounded transition flex items-center justify-center text-[10px] text-slate-400 hover:text-slate-600 font-bold opacity-0 hover:opacity-100">
-                                        <i class="fa-solid fa-plus md:mr-1"></i><span class="hidden md:inline">排班</span>
+                                    </div>
+
+                                    <!-- 點擊下方空白處也可新增排班 -->
+                                    <div v-if="d.isCurrent && d.shifts.length === 0" class="w-full h-7 mt-1 cursor-pointer bg-slate-100 hover:bg-slate-200 border border-slate-200 border-dashed rounded transition flex items-center justify-center text-[10px] text-slate-400 hover:text-slate-600 font-bold opacity-0 hover:opacity-100" @click.stop="openAddShift(d.dateStr)">
+                                        <i class="fa-solid fa-plus"></i><span class="hidden md:inline ml-1">排班</span>
                                     </div>
                                 </div>
-
                             </div>
                         </div>
                     </div>
@@ -227,99 +404,66 @@
 
         <!-- 右側面板遮罩 -->
         <div v-if="showRightSidebar" @click="showRightSidebar = false" class="absolute inset-0 bg-slate-900/60 z-30 md:hidden no-print transition-opacity"></div>
-        <button v-if="!showRightSidebar" @click="showRightSidebar = true" class="absolute top-4 right-4 bg-slate-800 text-white font-bold px-3 py-2 rounded-lg text-sm z-20 shadow-lg no-print toggle-btn"><i class="fa-solid fa-list-check mr-1"></i> 統整</button>
+        <button v-if="!showRightSidebar" @click="showRightSidebar = true" class="absolute top-4 right-4 bg-slate-800 text-white font-bold px-3 py-2 rounded-lg text-sm z-20 shadow-lg no-print toggle-btn">
+            <i class="fa-solid fa-list-check mr-1"></i> 統整
+        </button>
 
-        <!-- 右側：總表與篩選器 -->
-        <div v-show="showRightSidebar" class="absolute md:relative inset-y-0 right-0 w-[85%] sm:w-[320px] md:w-[280px] lg:w-[320px] bg-white border-l border-slate-200 h-full overflow-y-auto no-print shrink-0 custom-scroll z-40 md:z-20 transition-all shadow-2xl md:shadow-none flex flex-col">
-            
+        <!-- 右側：色彩過濾與統整清單 -->
+        <div v-show="showRightSidebar" class="absolute md:relative inset-y-0 right-0 w-[85%] sm:w-[320px] md:w-[260px] lg:w-[320px] bg-white border-l border-slate-200 h-full overflow-y-auto no-print shrink-0 custom-scroll z-40 md:z-20 transition-all shadow-2xl md:shadow-none flex flex-col">
             <div class="p-4 bg-slate-50 border-b border-slate-200 sticky top-0 z-10">
-                <div class="flex justify-between items-center mb-3">
-                    <h3 class="font-bold text-lg text-slate-800 flex items-center"><i class="fa-solid fa-list-check text-indigo-500 mr-2"></i>總班表</h3>
+                <div class="flex justify-between items-center mb-2">
+                    <h3 class="font-bold text-lg text-slate-800 flex items-center">
+                        <i class="fa-solid fa-filter text-indigo-500 mr-2"></i>班表過濾器
+                    </h3>
                     <div class="flex gap-2">
-                        <button @click="syncGoogleSheet" class="bg-orange-100 hover:bg-orange-200 text-orange-700 w-8 h-8 rounded-full transition flex items-center justify-center" title="同步 Google Sheet 預排"><i class="fa-solid fa-cloud-arrow-down" :class="{'fa-bounce': isSyncing}"></i></button>
-                        <button @click="showRightSidebar = false" class="bg-slate-200 hover:bg-slate-300 text-slate-600 w-8 h-8 rounded-full flex items-center justify-center"><i class="fa-solid fa-times md:hidden"></i><i class="fa-solid fa-chevron-right hidden md:block"></i></button>
+                        <button @click="syncGoogleSheet" class="bg-orange-100 hover:bg-orange-200 text-orange-700 w-7 h-7 rounded-full flex items-center justify-center transition" title="同步預排">
+                            <i class="fa-solid fa-cloud-arrow-down" :class="{'fa-bounce': isSyncing}"></i>
+                        </button>
+                        <button @click="showRightSidebar = false" class="bg-slate-200 hover:bg-slate-300 text-slate-600 w-7 h-7 rounded-full md:hidden flex items-center justify-center transition"><i class="fa-solid fa-times"></i></button>
                     </div>
                 </div>
                 
-                <!-- 色彩類別篩選器 -->
-                <div class="text-xs font-bold text-slate-600 mb-2">顯示篩選 (顏色類別)：</div>
-                <div class="flex flex-wrap gap-2 text-[10px]">
-                    <label class="flex items-center gap-1 cursor-pointer"><input type="checkbox" v-model="filters.normal" class="accent-slate-800"> <span class="bg-slate-800 text-white px-1 rounded">正式</span></label>
-                    <label class="flex items-center gap-1 cursor-pointer"><input type="checkbox" v-model="filters.pre_scheduled" class="accent-orange-500"> <span class="bg-orange-500 text-white px-1 rounded">預排</span></label>
-                    <label class="flex items-center gap-1 cursor-pointer"><input type="checkbox" v-model="filters.deleting" class="accent-slate-500"> <span class="bg-slate-500 text-white px-1 rounded">待刪</span></label>
-                    <label class="flex items-center gap-1 cursor-pointer"><input type="checkbox" v-model="filters.hope" class="accent-yellow-500"> <span class="bg-yellow-400 text-yellow-900 px-1 rounded">希望</span></label>
-                    <label class="flex items-center gap-1 cursor-pointer"><input type="checkbox" v-model="filters.expo" class="accent-pink-500"> <span class="bg-pink-500 text-white px-1 rounded">花博</span></label>
+                <!-- 色彩過濾按鈕群 -->
+                <div class="flex flex-wrap gap-1.5 mt-2">
+                    <span v-for="(cfg, key) in colorConfigs" :key="key" 
+                          @click="toggleFilter(key)" 
+                          class="filter-chip text-[10px] px-2 py-1 rounded-full font-bold border flex items-center gap-1"
+                          :class="activeFilters.includes(key) ? cfg.activeClass : 'inactive bg-slate-100 border-slate-200 text-slate-500'">
+                        <div class="w-2 h-2 rounded-full" :class="cfg.dotClass"></div>
+                        {{ cfg.label }}
+                    </span>
                 </div>
             </div>
             
-            <div class="p-4 space-y-5 flex-grow">
+            <div class="p-3 overflow-y-auto flex-grow bg-slate-50">
+                <!-- 批次操作 -->
+                <div v-if="activeFilters.includes('orange') && filteredList.orange.length > 0" class="mb-4">
+                    <button @click="batchDeletePreSchedules" class="w-full text-[10px] bg-red-100 text-red-700 py-2 rounded font-bold border border-red-200 hover:bg-red-200 transition shadow-sm">
+                        <i class="fa-solid fa-broom mr-1"></i> 一鍵回報刪除所有預排
+                    </button>
+                </div>
+
+                <!-- 動態渲染選中的顏色區塊 -->
+                <div v-for="key in ['black', 'orange', 'yellow', 'purple', 'blue', 'green', 'red']" :key="key">
+                    <div v-if="activeFilters.includes(key) && filteredList[key].length > 0" class="mb-5">
+                        <h4 class="font-bold text-sm mb-2 pb-1 border-b-2 flex justify-between items-end" :class="colorConfigs[key].borderClass">
+                            <span :class="colorConfigs[key].textClass">{{ colorConfigs[key].label }}</span>
+                            <span class="text-[10px] bg-slate-200 text-slate-600 px-1.5 rounded">{{ filteredList[key].length }}</span>
+                        </h4>
+                        <ul class="space-y-1.5">
+                            <li v-for="s in filteredList[key]" :key="s.id" class="text-xs p-2 rounded border cursor-pointer transition hover:shadow-sm" :class="colorConfigs[key].itemClass" @click="openShiftEditor(s)">
+                                <div class="flex justify-between font-bold">
+                                    <span>{{ s.date.substring(5) }}</span>
+                                    <span class="truncate ml-2">{{ s.station }}</span>
+                                </div>
+                            </li>
+                        </ul>
+                    </div>
+                </div>
                 
-                <!-- 統整區塊: 正式排班 -->
-                <div v-if="filters.normal && groupedSummary.normal.length > 0">
-                    <h4 class="font-bold text-sm text-slate-800 mb-2 border-b-2 border-slate-800 pb-1 flex justify-between">
-                        <span><i class="fa-solid fa-leaf text-slate-700 mr-1"></i> 正式排班</span>
-                        <span class="bg-slate-200 text-slate-800 text-[10px] px-2 rounded-full">{{ groupedSummary.normal.length }}</span>
-                    </h4>
-                    <ul class="text-xs space-y-1.5">
-                        <li v-for="s in groupedSummary.normal" :key="s.id" class="bg-slate-50 border border-slate-200 text-slate-700 p-2 rounded hover:border-slate-400 transition cursor-pointer" @click="openShiftModal(s)">
-                            <div class="flex justify-between font-bold"><span>{{ s.date.substring(5) }}</span> <span>{{ s.station }}</span></div>
-                        </li>
-                    </ul>
+                <div v-if="activeFilters.length === 0" class="text-center text-slate-400 text-xs mt-10">
+                    請在上方點擊標籤以顯示對應班表
                 </div>
-
-                <!-- 統整區塊: 預排 -->
-                <div v-if="filters.pre_scheduled && groupedSummary.preScheduled.length > 0">
-                    <h4 class="font-bold text-sm text-orange-800 mb-2 border-b-2 border-orange-400 pb-1 flex justify-between items-center">
-                        <span><i class="fa-solid fa-bolt text-orange-500 mr-1"></i> 預排模擬</span>
-                        <div class="flex gap-2 items-center">
-                            <button @click="batchDeletePreScheduled" class="text-[9px] bg-red-100 text-red-600 px-1.5 py-0.5 rounded shadow-sm hover:bg-red-500 hover:text-white transition">批次提刪</button>
-                            <span class="bg-orange-100 text-orange-800 text-[10px] px-2 rounded-full">{{ groupedSummary.preScheduled.length }}</span>
-                        </div>
-                    </h4>
-                    <ul class="text-xs space-y-1.5">
-                        <li v-for="s in groupedSummary.preScheduled" :key="s.id" class="bg-orange-50 border border-orange-200 text-orange-800 p-2 rounded hover:border-orange-400 transition cursor-pointer" @click="openShiftModal(s)">
-                            <div class="flex justify-between font-bold"><span>{{ s.date.substring(5) }}</span> <span>{{ s.station }}</span></div>
-                        </li>
-                    </ul>
-                </div>
-
-                <!-- 統整區塊: 刪除中 -->
-                <div v-if="filters.deleting && groupedSummary.deleting.length > 0">
-                    <h4 class="font-bold text-sm text-slate-500 mb-2 border-b-2 border-slate-300 pb-1 flex justify-between">
-                        <span><i class="fa-solid fa-spinner fa-spin text-slate-400 mr-1"></i> 刪除中...</span>
-                        <span class="bg-slate-200 text-slate-600 text-[10px] px-2 rounded-full">{{ groupedSummary.deleting.length }}</span>
-                    </h4>
-                    <ul class="text-xs space-y-1.5 opacity-80">
-                        <li v-for="s in groupedSummary.deleting" :key="s.id" class="bg-slate-100 border border-dashed border-slate-300 text-slate-500 p-2 rounded hover:border-slate-400 transition cursor-pointer" @click="openShiftModal(s)">
-                            <div class="flex justify-between font-bold line-through"><span>{{ s.date.substring(5) }}</span> <span>{{ s.station }}</span></div>
-                        </li>
-                    </ul>
-                </div>
-
-                <!-- 統整區塊: 希望廣場 -->
-                <div v-if="filters.hope && groupedSummary.hope.length > 0">
-                    <h4 class="font-bold text-sm text-yellow-900 mb-2 border-b-2 border-yellow-400 pb-1 flex justify-between">
-                        <span><i class="fa-solid fa-sun text-yellow-500 mr-1"></i> 希望廣場</span>
-                    </h4>
-                    <ul class="text-xs space-y-1.5">
-                        <li v-for="s in groupedSummary.hope" :key="s.id" class="bg-yellow-50 border border-yellow-200 text-yellow-900 p-2 rounded hover:border-yellow-400 transition cursor-pointer" @click="openShiftModal(s)">
-                            <div class="flex justify-between font-bold"><span>{{ s.date.substring(5) }}</span> <span>{{ s.station }}</span></div>
-                        </li>
-                    </ul>
-                </div>
-
-                <!-- 統整區塊: 花博 -->
-                <div v-if="filters.expo && groupedSummary.expo.length > 0">
-                    <h4 class="font-bold text-sm text-pink-900 mb-2 border-b-2 border-pink-400 pb-1 flex justify-between">
-                        <span><i class="fa-solid fa-seedling text-pink-500 mr-1"></i> 花博市集</span>
-                    </h4>
-                    <ul class="text-xs space-y-1.5">
-                        <li v-for="s in groupedSummary.expo" :key="s.id" class="bg-pink-50 border border-pink-200 text-pink-800 p-2 rounded hover:border-pink-400 transition cursor-pointer" @click="openShiftModal(s)">
-                            <div class="flex justify-between font-bold"><span>{{ s.date.substring(5) }}</span> <span>{{ s.station }}</span></div>
-                        </li>
-                    </ul>
-                </div>
-
             </div>
         </div>
 
@@ -343,131 +487,423 @@
 
     createApp({
         setup() {
+            // 基本狀態
             const currentView = ref('myschedule'); 
-            const schedules = ref([]);
             const isDBConnected = ref(false);
-            const isSyncing = ref(false);
-            const showExportModal = ref(false);
-            const showInput = ref(false);
-
-            // 視窗控制
+            const schedules = ref([]);
+            
+            // UI 控制
             const showLeftSidebar = ref(window.innerWidth > 768);
             const showRightSidebar = ref(window.innerWidth > 768);
             const calendarLayout = ref(window.innerWidth < 768 ? 1 : 2); 
+            
+            // 匯出功能
+            const showExportModal = ref(false);
+            const exportStart = ref('2026-11-01');
+            const exportEnd = ref('2027-01-31');
 
+            // 匯入 CSV
+            const showInput = ref(false);
+            const csvInput = ref('');
+
+            // 調度設定
             const printTarget = ref('五寮尖山羊乳'); 
             const printMonths = ref(['2026-10', '2026-11', '2026-12', '2027-01']); 
-            
-            // ===== 新增：篩選器狀態 =====
-            const filters = ref({
-                normal: true,
-                pre_scheduled: true,
-                deleting: true,
-                hope: true,
-                expo: true
-            });
+            const contactInfo = ref('【點點綠農業調度專線】\n0912-345-678');
+            let isInitializingSettings = true;
+            const isSavingSettings = ref(false);
+            const isSyncing = ref(false);
 
-            // ===== 新增：排班編輯視窗狀態 =====
-            const shiftModal = ref({
-                show: false,
-                data: null,
-                stationInput: ''
-            });
+            // 編輯器與新增排班狀態
+            const showShiftEditor = ref(false);
+            const editingShift = ref(null);
+            
+            const showAddModal = ref(false);
+            const newShiftForm = ref({ date: '', staff: '', locationType: '點點綠', station: '', note: '' });
+
+            // 日期常數 (供日曆顯示)
+            const holidays2026 = {
+                '2026-01-01': '元旦', '2026-02-16': '除夕', '2026-02-17': '初一',
+                '2026-04-04': '清明節', '2026-06-20': '端午節', '2026-09-27': '中秋節', '2026-10-10': '國慶日'
+            };
+            const farmEvents = { '2026-05-06': '食農體驗營', '2026-07-20': '向日葵花海調度' };
+            const hopeSquare2026 = { '2026-08-01': '臺中週', '2026-12-26': '宜蘭週(農糧署自籌)' };
+
+            const navClass = (view) => currentView.value === view ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-300 hover:text-white hover:bg-slate-700/50';
+
+            // 色彩與功能映射配置
+            const colorConfigs = {
+                black:  { label: '點點綠(正式)', borderClass: 'border-slate-800', textClass: 'text-slate-800', dotClass: 'bg-slate-800', activeClass: 'bg-slate-800 text-white border-slate-800', itemClass: 'bg-white border-slate-200 text-slate-700 hover:border-slate-400' },
+                orange: { label: '預排班表', borderClass: 'border-orange-500', textClass: 'text-orange-600', dotClass: 'bg-orange-500', activeClass: 'bg-orange-100 text-orange-700 border-orange-300', itemClass: 'bg-orange-50 border-orange-200 text-orange-800 hover:border-orange-400' },
+                yellow: { label: '希望廣場', borderClass: 'border-yellow-400', textClass: 'text-yellow-600', dotClass: 'bg-yellow-400', activeClass: 'bg-yellow-100 text-yellow-800 border-yellow-300', itemClass: 'bg-yellow-50 border-yellow-200 text-yellow-900 hover:border-yellow-400' },
+                purple: { label: '花博市集', borderClass: 'border-purple-500', textClass: 'text-purple-600', dotClass: 'bg-purple-500', activeClass: 'bg-purple-100 text-purple-700 border-purple-300', itemClass: 'bg-purple-50 border-purple-200 text-purple-800 hover:border-purple-400' },
+                blue:   { label: '特殊邀請', borderClass: 'border-blue-500', textClass: 'text-blue-600', dotClass: 'bg-blue-500', activeClass: 'bg-blue-100 text-blue-700 border-blue-300', itemClass: 'bg-blue-50 border-blue-200 text-blue-800 hover:border-blue-400' },
+                green:  { label: '食農/其他', borderClass: 'border-emerald-500', textClass: 'text-emerald-600', dotClass: 'bg-emerald-500', activeClass: 'bg-emerald-100 text-emerald-700 border-emerald-300', itemClass: 'bg-emerald-50 border-emerald-200 text-emerald-800 hover:border-emerald-400' },
+                red:    { label: '刪除中/請假', borderClass: 'border-red-500', textClass: 'text-red-600', dotClass: 'bg-red-500', activeClass: 'bg-red-100 text-red-700 border-red-300', itemClass: 'bg-red-50 border-red-200 text-red-800 hover:border-red-400' }
+            };
+
+            const activeFilters = ref(['black', 'orange', 'yellow', 'purple', 'blue', 'green', 'red']);
+            const toggleFilter = (key) => {
+                if (activeFilters.value.includes(key)) activeFilters.value = activeFilters.value.filter(k => k !== key);
+                else activeFilters.value.push(key);
+            };
+
+            const resolveShiftColorKey = (shift) => {
+                if (shift.status === 'leave' || shift.status === 'deleting') return 'red';
+                if (shift.status === 'pre_scheduled' || shift.locationType === '點點綠預排') return 'orange';
+                if (shift.locationType === '花博') return 'purple';
+                if (shift.locationType === '希望廣場') return 'yellow';
+                if (shift.locationType === '特殊邀請') return 'blue';
+                if (shift.locationType === '其他' || shift.locationType === '食農') return 'green';
+                return 'black'; 
+            };
 
             const getShiftColorClass = (shift) => {
-                if (shift.status === 'leave') return 'bg-red-100 text-red-700 line-through border border-red-200';
-                if (shift.status === 'deleting') return 'bg-slate-200 text-slate-500 border-2 border-dashed border-slate-400 opacity-80 shadow-none'; // 刪除中狀態
-                if (shift.status === 'pre_scheduled' || shift.locationType === '點點綠預排') return 'bg-orange-500 text-white shadow-sm border border-orange-600';
-                if (shift.locationType === '花博') return 'bg-pink-500 text-white shadow-sm';
-                if (shift.locationType === '希望廣場') return 'bg-yellow-400 text-yellow-900 shadow-sm';
-                return 'bg-slate-800 text-white shadow-sm'; 
-            };
-
-            const formatLocationType = (shift) => {
-                if (shift.status === 'pre_scheduled') return '預排';
-                if (shift.status === 'deleting') return '待刪';
-                return shift.locationType || '點點綠';
-            };
-
-            // ===== 新增：開啟編輯視窗 =====
-            const openShiftModal = (shift) => {
-                shiftModal.value = {
-                    show: true,
-                    data: shift,
-                    stationInput: shift.station
+                const key = resolveShiftColorKey(shift);
+                const map = {
+                    red: 'bg-red-100 text-red-700 border border-red-300 line-through',
+                    orange: 'bg-orange-500 text-white shadow-sm border border-orange-600',
+                    purple: 'bg-purple-600 text-white shadow-sm',
+                    yellow: 'bg-yellow-400 text-yellow-900 shadow-sm',
+                    blue: 'bg-blue-600 text-white shadow-sm',
+                    green: 'bg-emerald-600 text-white shadow-sm',
+                    black: 'bg-slate-800 text-white shadow-sm'
                 };
+                return map[key];
             };
 
-            // ===== 新增：編輯視窗操作邏輯 =====
-            const confirmPreSchedule = () => {
-                db.ref(`schedules/${shiftModal.value.data.id}`).update({
-                    status: 'normal',
-                    locationType: '點點綠',
-                    station: shiftModal.value.stationInput
+            const getBorderColorClass = (shift) => {
+                if(!shift) return 'border-slate-800';
+                const key = resolveShiftColorKey(shift);
+                const map = { red: 'border-red-500', orange: 'border-orange-500', purple: 'border-purple-500', yellow: 'border-yellow-400', blue: 'border-blue-500', green: 'border-emerald-500', black: 'border-slate-800' };
+                return map[key];
+            };
+
+            const filteredList = computed(() => {
+                const res = { black: [], orange: [], yellow: [], purple: [], blue: [], green: [], red: [] };
+                schedules.value.forEach(s => {
+                    if (s.staff === printTarget.value && !s.isDeleted && printMonths.value.includes(s.date.substring(0,7))) {
+                        const key = resolveShiftColorKey(s);
+                        res[key].push(s);
+                    }
                 });
-                shiftModal.value.show = false;
-                Swal.fire({title: '已轉為正式排班', icon: 'success', toast: true, position: 'top-end', timer: 1500, showConfirmButton: false});
-            };
+                Object.keys(res).forEach(k => res[k].sort((a,b) => new Date(a.date) - new Date(b.date)));
+                return res;
+            });
 
-            const requestDelete = () => {
-                db.ref(`schedules/${shiftModal.value.data.id}`).update({
-                    status: 'deleting',
-                    station: shiftModal.value.stationInput
-                });
-                shiftModal.value.show = false;
-                Swal.fire({title: '已標示為刪除中', icon: 'info', toast: true, position: 'top-end', timer: 1500, showConfirmButton: false});
-            };
+            const uniqueStaffList = computed(() => {
+                const list = [...new Set(schedules.value.map(s => s.staff))];
+                if (!list.includes('五寮尖山羊乳')) list.push('五寮尖山羊乳');
+                return list.sort();
+            });
 
-            const cancelDelete = () => {
-                // 回復為預排或正常 (此處預設回退預排)
-                db.ref(`schedules/${shiftModal.value.data.id}`).update({
-                    status: 'pre_scheduled',
-                });
-                shiftModal.value.show = false;
-            };
-
-            const updateShiftTitle = () => {
-                db.ref(`schedules/${shiftModal.value.data.id}`).update({
-                    station: shiftModal.value.stationInput
-                });
-                shiftModal.value.show = false;
-            };
-
-            // ===== 新增：批次提刪預排 =====
-            const batchDeletePreScheduled = () => {
-                if(confirm('確定要將目前所選廠商的所有「預排」一次轉為「刪除中」狀態嗎？')) {
-                    const updates = {};
-                    groupedSummary.value.preScheduled.forEach(s => {
-                        updates[`schedules/${s.id}/status`] = 'deleting';
-                    });
-                    if (Object.keys(updates).length > 0) {
-                        db.ref().update(updates);
-                        Swal.fire({title: '批次處理成功', icon: 'success', toast: true, position: 'top-end', timer: 1500, showConfirmButton: false});
+            const allMonths = computed(() => {
+                const fullYearMonths = [];
+                for (let y = 2026; y <= 2027; y++) {
+                    for (let m = 1; m <= 12; m++) {
+                        if (y === 2027 && m > 4) break; 
+                        fullYearMonths.push(`${y}-${String(m).padStart(2, '0')}`);
                     }
                 }
+                const dataMonths = schedules.value.map(s => s.date.substring(0, 7));
+                return [...new Set([...dataMonths, ...fullYearMonths])].sort();
+            });
+
+            const selectedMonthData = computed(() => {
+                if (!printTarget.value || printMonths.value.length === 0) return [];
+                return printMonths.value.sort().map(mStr => {
+                    const [y, m] = mStr.split('-');
+                    const daysInMonth = new Date(y, m, 0).getDate();
+                    const firstDay = new Date(y, m - 1, 1).getDay();
+                    const paddingDays = firstDay === 0 ? 6 : firstDay - 1;
+                    const days = [];
+                    
+                    for(let i=0; i<paddingDays; i++) days.push({ dayNum: '', isCurrent: false, shifts: [] });
+                    
+                    for(let i=1; i<=daysInMonth; i++) {
+                        const dStr = `${mStr}-${String(i).padStart(2,'0')}`;
+                        const dayOfWeek = new Date(y, m - 1, i).getDay();
+                        
+                        const dailyShifts = schedules.value.filter(s => s.staff === printTarget.value && s.date === dStr && !s.isDeleted);
+                        
+                        days.push({ 
+                            dayNum: i, isCurrent: true, isWeekend: dayOfWeek === 0 || dayOfWeek === 6, dateStr: dStr, 
+                            shifts: dailyShifts,
+                            isHoliday: !!holidays2026[dStr], holidayName: holidays2026[dStr] || '',
+                            isFarmEvent: !!farmEvents[dStr], farmEventName: farmEvents[dStr] || '',
+                            isHopeSquare: !!hopeSquare2026[dStr], hopeSquareName: hopeSquare2026[dStr] || ''
+                        });
+                    }
+                    return { label: `${y}年 ${m}月`, days };
+                });
+            });
+
+            // === 試算與戰略分析 ===
+            const currentDisplayStats = computed(() => {
+                if (!printTarget.value || printMonths.value.length === 0) return { count: 0, cost: 0, rate: 800 };
+                let count = 0;
+                schedules.value.forEach(s => {
+                    if (s.staff === printTarget.value && !s.isDeleted && s.status !== 'leave' && s.status !== 'deleting') {
+                        const mStr = s.date.substring(0, 7);
+                        const isDianDianGreen = s.locationType === '點點綠' || s.locationType === '點點綠預排' || (!s.locationType && s.drawer);
+                        if (printMonths.value.includes(mStr) && isDianDianGreen) count++;
+                    }
+                });
+                let rate = 800;
+                if (count >= 20) rate = 680;
+                else if (count >= 10) rate = 720;
+                return { count, cost: count * rate, rate };
+            });
+
+            const analysisStats = computed(() => {
+                const stats = {};
+                schedules.value.forEach(s => {
+                    if (s.isDeleted || s.status === 'leave' || s.status === 'deleting') return; 
+                    const isDianDianGreen = s.locationType === '點點綠' || s.locationType === '點點綠預排' || (!s.locationType && s.drawer);
+                    if (!isDianDianGreen) return; 
+
+                    if (!stats[s.staff]) {
+                        stats[s.staff] = { 
+                            name: s.staff, 
+                            p3Count: 0, p3Dist: { '雙連': 0, '士林': 0, '石牌': 0, '北投': 0 },
+                            p4Count: 0, p4Dist: { '雙連': 0, '士林': 0, '石牌': 0, '北投': 0 },
+                            p5Count: 0, p5Dist: { '雙連': 0, '士林': 0, '石牌': 0, '北投': 0 },
+                            p6Count: 0, p6Dist: { '雙連': 0, '士林': 0, '石牌': 0, '北投': 0 }
+                        };
+                    }
+                    
+                    const y = parseInt(s.date.substring(0, 4));
+                    const month = parseInt(s.date.substring(5, 7));
+
+                    if (y === 2026 && month >= 5 && month <= 7) {
+                        stats[s.staff].p3Count++;
+                        if (s.drawer) stats[s.staff].p3Dist[s.drawer]++;
+                    } 
+                    else if (y === 2026 && month >= 8 && month <= 10) {
+                        stats[s.staff].p4Count++;
+                        if (s.drawer) stats[s.staff].p4Dist[s.drawer]++;
+                    }
+                    else if ((y === 2026 && month >= 11) || (y === 2027 && month === 1)) {
+                        stats[s.staff].p5Count++;
+                        if (s.drawer) stats[s.staff].p5Dist[s.drawer]++;
+                    }
+                    else if (y === 2027 && month >= 2 && month <= 4) {
+                        stats[s.staff].p6Count++;
+                        if (s.drawer) stats[s.staff].p6Dist[s.drawer]++;
+                    }
+                });
+
+                const calcTier = (count) => {
+                    if (count >= 20) return { tier: 'green', rev: count * 680 };
+                    if (count >= 10) return { tier: 'blue', rev: count * 720 };
+                    return { tier: 'normal', rev: count * 800 };
+                };
+
+                return Object.values(stats).map(stat => {
+                    stat.p3DistStr = `${stat.p3Dist['雙連']}/${stat.p3Dist['士林']}/${stat.p3Dist['石牌']}/${stat.p3Dist['北投']}`;
+                    const p3Res = calcTier(stat.p3Count); stat.p3Tier = p3Res.tier; stat.p3Rev = p3Res.rev;
+                    stat.p4DistStr = `${stat.p4Dist['雙連']}/${stat.p4Dist['士林']}/${stat.p4Dist['石牌']}/${stat.p4Dist['北投']}`;
+                    const p4Res = calcTier(stat.p4Count); stat.p4Tier = p4Res.tier; stat.p4Rev = p4Res.rev;
+                    stat.p5DistStr = `${stat.p5Dist['雙連']}/${stat.p5Dist['士林']}/${stat.p5Dist['石牌']}/${stat.p5Dist['北投']}`;
+                    const p5Res = calcTier(stat.p5Count); stat.p5Tier = p5Res.tier; stat.p5Rev = p5Res.rev;
+                    stat.p6DistStr = `${stat.p6Dist['雙連']}/${stat.p6Dist['士林']}/${stat.p6Dist['石牌']}/${stat.p6Dist['北投']}`;
+                    const p6Res = calcTier(stat.p6Count); stat.p6Tier = p6Res.tier; stat.p6Rev = p6Res.rev;
+                    return stat;
+                }).sort((a, b) => (b.p3Count + b.p4Count + b.p5Count + b.p6Count) - (a.p3Count + a.p4Count + a.p5Count + a.p6Count));
+            });
+
+            const getRowColor = (tier) => {
+                if (tier === 'green') return 'text-emerald-600 font-black';
+                if (tier === 'blue') return 'text-blue-600 font-bold';
+                return 'font-medium';
             };
 
-            // 同步 Google Sheet 預排
+            // === 手動新增排班功能 ===
+            const openAddShift = (dateStr) => {
+                newShiftForm.value = {
+                    date: dateStr,
+                    staff: printTarget.value,
+                    locationType: '點點綠',
+                    station: '',
+                    note: ''
+                };
+                showAddModal.value = true;
+            };
+
+            const saveNewShift = () => {
+                if (!newShiftForm.value.station.trim()) {
+                    Swal.fire('請填寫站點', '站點名稱不可為空', 'warning');
+                    return;
+                }
+                
+                let drawerKey = '';
+                if (newShiftForm.value.station.includes('雙連')) drawerKey = '雙連';
+                else if (newShiftForm.value.station.includes('士林')) drawerKey = '士林';
+                else if (newShiftForm.value.station.includes('石牌')) drawerKey = '石牌';
+                else if (newShiftForm.value.station.includes('北投')) drawerKey = '北投';
+
+                const newId = 'manual_' + Date.now() + '_' + Math.random().toString(36).substring(2, 9);
+                const shiftData = {
+                    id: newId,
+                    date: newShiftForm.value.date,
+                    staff: newShiftForm.value.staff,
+                    locationType: newShiftForm.value.locationType,
+                    station: newShiftForm.value.station,
+                    drawer: drawerKey,
+                    note: newShiftForm.value.note,
+                    status: newShiftForm.value.locationType === '點點綠預排' ? 'pre_scheduled' : 'normal',
+                    isDeleted: false
+                };
+
+                db.ref(`schedules/${newId}`).set(shiftData)
+                    .then(() => {
+                        showAddModal.value = false;
+                        Swal.fire({ title: '新增成功', icon: 'success', toast: true, position: 'top-end', showConfirmButton: false, timer: 1500 });
+                    })
+                    .catch(err => {
+                        Swal.fire('錯誤', err.message, 'error');
+                    });
+            };
+
+            // === 班表操作與狀態管理 ===
+            const openShiftEditor = (shift) => {
+                editingShift.value = { ...shift };
+                showShiftEditor.value = true;
+            };
+
+            const confirmOfficial = (shift) => {
+                db.ref(`schedules/${shift.id}`).update({ status: 'normal', locationType: '點點綠' });
+                showShiftEditor.value = false;
+                Swal.fire({ title: '已轉為正式排班', icon: 'success', toast: true, position: 'top-end', showConfirmButton: false, timer: 1500 });
+            };
+
+            const markAsDeleting = (shift) => {
+                db.ref(`schedules/${shift.id}`).update({ status: 'deleting' });
+                showShiftEditor.value = false;
+                Swal.fire({ title: '已標記為刪除中', text: '請截圖回報給主任進行確認', icon: 'info', toast: true, position: 'top-end', showConfirmButton: false, timer: 2500 });
+            };
+
+            const revertToPreScheduled = (shift) => {
+                db.ref(`schedules/${shift.id}`).update({ status: 'pre_scheduled' });
+                showShiftEditor.value = false;
+            };
+
+            const hardDeleteShift = (shift) => {
+                db.ref(`schedules/${shift.id}`).update({ isDeleted: true });
+                showShiftEditor.value = false;
+                Swal.fire({ title: '已徹底刪除', icon: 'success', toast: true, position: 'top-end', showConfirmButton: false, timer: 1500 });
+            };
+
+            const batchDeletePreSchedules = () => {
+                if(filteredList.value.orange.length === 0) return;
+                Swal.fire({
+                    title: '一鍵回報刪除所有預排？',
+                    text: `將把目前顯示的 ${filteredList.value.orange.length} 筆預排標記為「刪除中」`,
+                    icon: 'warning',
+                    showCancelButton: true,
+                    confirmButtonText: '確定執行',
+                    cancelButtonText: '取消',
+                    confirmButtonColor: '#d33'
+                }).then((result) => {
+                    if (result.isConfirmed) {
+                        const updates = {};
+                        filteredList.value.orange.forEach(s => {
+                            updates[`${s.id}/status`] = 'deleting';
+                        });
+                        db.ref('schedules').update(updates);
+                        Swal.fire('完成', '已全數標記為刪除中', 'success');
+                    }
+                });
+            };
+
+            const printNow = () => window.print();
+
+            // === 匯出入功能 ===
+            const processCSV = () => {
+                const results = [];
+                const parsed = Papa.parse(csvInput.value, { header: false, skipEmptyLines: true });
+                const rows = parsed.data;
+                const colMap = {};
+                if (rows.length < 2) return;
+                rows[0].forEach((cell, idx) => {
+                    if (idx === 0) return;
+                    const match = cell.match(/(\d{1,2})\/(\d{1,2})/);
+                    if (match) {
+                        const y = parseInt(match[1]) >= 11 ? 2026 : 2027; 
+                        colMap[idx] = `${y}-${String(match[1]).padStart(2,'0')}-${String(match[2]).padStart(2,'0')}`;
+                    }
+                });
+                for (let i = 1; i < rows.length; i++) {
+                    const row = rows[i];
+                    const stationRaw = row[0];
+                    if (!stationRaw) continue;
+                    let drawerKey = stationRaw.includes('雙連') ? '雙連' : stationRaw.includes('士林') ? '士林' : stationRaw.includes('石牌') ? '石牌' : stationRaw.includes('北投') ? '北投' : '';
+                    row.forEach((cell, idx) => {
+                        const date = colMap[idx];
+                        if (idx !== 0 && date && cell && cell.trim()) {
+                            cell.split(/[,，、]/).map(s => s.trim()).filter(s => s).forEach(s => {
+                                results.push({
+                                    id: Math.random().toString(36).slice(2),
+                                    date, drawer: drawerKey, station: stationRaw, staff: s, 
+                                    status: 'normal', locationType: '點點綠', isDeleted: false
+                                });
+                            });
+                        }
+                    });
+                }
+                const updates = {};
+                results.forEach(s => updates[s.id] = s);
+                db.ref('schedules').set(updates); 
+                showInput.value = false;
+                Swal.fire('覆寫成功', '資料已同步', 'success');
+            };
+
+            const exportData = () => {
+                const start = new Date(exportStart.value);
+                const end = new Date(exportEnd.value);
+                const filtered = schedules.value.filter(s => {
+                    if (s.isDeleted) return false;
+                    const d = new Date(s.date);
+                    return d >= start && d <= end;
+                });
+                const csvRows = [['日期', '狀態', '類型', '廠商(人員)', '主站點', '完整站點', '備註']];
+                filtered.sort((a, b) => new Date(a.date) - new Date(b.date)).forEach(s => {
+                    let displayStatus = '正常';
+                    if (s.status === 'leave') displayStatus = '請假';
+                    if (s.status === 'pre_scheduled') displayStatus = '預排';
+                    if (s.status === 'deleting') displayStatus = '刪除中';
+                    csvRows.push([s.date, displayStatus, s.locationType || '點點綠', s.staff, s.drawer || '', s.station || '', s.note || '']);
+                });
+                const csvString = Papa.unparse(csvRows);
+                const blob = new Blob(["\ufeff" + csvString], { type: 'text/csv;charset=utf-8;' });
+                const link = document.createElement("a");
+                const url = URL.createObjectURL(blob);
+                link.setAttribute("href", url);
+                link.setAttribute("download", `排班資料_${exportStart.value}_至_${exportEnd.value}.csv`);
+                document.body.appendChild(link);
+                link.click();
+                document.body.removeChild(link);
+                showExportModal.value = false;
+            };
+
             const syncGoogleSheet = async () => {
                 isSyncing.value = true;
                 try {
                     const url = "https://docs.google.com/spreadsheets/d/e/2PACX-1vT0TrRYSja32O8udKSY4xQT-jz-HQ3qOGeyVX886PfXwBJYoE0LByuvfJxR6wkvOXqIGqWIg99WS_wn/pub?gid=1175197449&single=true&output=csv";
                     const response = await fetch(url);
                     const csvText = await response.text();
-                    
                     const parsed = Papa.parse(csvText, { header: false, skipEmptyLines: true });
                     const rows = parsed.data;
                     const colMap = {};
                     const results = [];
 
+                    if (rows.length < 2) throw new Error("CSV 格式不正確");
                     rows[0].forEach((cell, idx) => {
                         if (idx === 0) return;
                         const match = cell.match(/(\d{1,2})\/(\d{1,2})/);
                         if (match) {
-                            const m = parseInt(match[1]);
-                            const d = parseInt(match[2]);
-                            const y = m >= 11 ? 2026 : 2027;
-                            colMap[idx] = `${y}-${String(m).padStart(2,'0')}-${String(d).padStart(2,'0')}`;
+                            const y = parseInt(match[1]) >= 11 ? 2026 : 2027;
+                            colMap[idx] = `${y}-${String(match[1]).padStart(2,'0')}-${String(match[2]).padStart(2,'0')}`;
                         }
                     });
 
@@ -475,24 +911,21 @@
                         const row = rows[i];
                         const stationRaw = row[0];
                         if (!stationRaw) continue;
+                        let drawerKey = stationRaw.includes('雙連') ? '雙連' : stationRaw.includes('士林') ? '士林' : stationRaw.includes('石牌') ? '石牌' : stationRaw.includes('北投') ? '北投' : '';
 
                         row.forEach((cell, idx) => {
-                            if (idx === 0) return;
                             const date = colMap[idx];
-                            if (date && cell && cell.trim()) {
-                                const staffs = cell.split(/[,，、]/).map(s => s.trim()).filter(s => s);
-                                staffs.forEach(s => {
-                                    const safeId = `pre_${date}_${stationRaw}_${s}`.replace(/[.#$[\]/]/g, '_');
+                            if (idx !== 0 && date && cell && cell.trim()) {
+                                cell.split(/[,，、]/).map(s => s.trim()).filter(s => s).forEach(s => {
                                     results.push({
-                                        id: safeId,
-                                        date, station: stationRaw, staff: s, 
+                                        id: `pre_${date}_${stationRaw}_${s}`.replace(/[.#$[\]/]/g, '_'),
+                                        date, drawer: drawerKey, station: stationRaw, staff: s, 
                                         status: 'pre_scheduled', locationType: '點點綠預排', isDeleted: false
                                     });
                                 });
                             }
                         });
                     }
-                    
                     const updates = {};
                     results.forEach(s => updates[s.id] = s);
                     await db.ref('schedules').update(updates);
@@ -504,99 +937,61 @@
                 }
             };
 
-            const uniqueStaffList = computed(() => {
-                const list = [...new Set(schedules.value.map(s => s.staff))];
-                if (!list.includes('五寮尖山羊乳')) list.push('五寮尖山羊乳');
-                return list.sort();
-            });
-
-            const allMonths = computed(() => {
-                const dataMonths = schedules.value.map(s => s.date.substring(0, 7));
-                return [...new Set(dataMonths)].sort();
-            });
-
-            const activeSchedules = computed(() => {
-                return schedules.value.filter(s => 
-                    s.staff === printTarget.value && 
-                    !s.isDeleted && 
-                    printMonths.value.includes(s.date.substring(0,7))
-                ).sort((a,b) => new Date(a.date) - new Date(b.date));
-            });
-
-            // ===== 修改：分類邏輯支援刪除中 =====
-            const groupedSummary = computed(() => {
-                const normal = [];
-                const preScheduled = [];
-                const deleting = [];
-                const expo = [];
-                const hope = [];
-                
-                activeSchedules.value.forEach(s => {
-                    if (s.status === 'deleting') {
-                        deleting.push(s);
-                    } else if (s.status === 'pre_scheduled') {
-                        preScheduled.push(s);
-                    } else if (s.locationType === '花博') {
-                        expo.push(s);
-                    } else if (s.locationType === '希望廣場') {
-                        hope.push(s);
-                    } else {
-                        normal.push(s);
-                    }
-                });
-                return { normal, preScheduled, deleting, expo, hope };
-            });
-
-            // ===== 修改：改為支援 filter 多陣列回傳 =====
-            const selectedMonthData = computed(() => {
-                if (!printTarget.value || printMonths.value.length === 0) return [];
-                return printMonths.value.sort().map(mStr => {
-                    const [y, m] = mStr.split('-');
-                    const daysInMonth = new Date(y, m, 0).getDate();
-                    const firstDay = new Date(y, m - 1, 1).getDay();
-                    const paddingDays = firstDay === 0 ? 6 : firstDay - 1;
-                    const days = [];
-                    
-                    for(let i=0; i<paddingDays; i++) days.push({ dayNum: '', isCurrent: false });
-                    
-                    for(let i=1; i<=daysInMonth; i++) {
-                        const dStr = `${mStr}-${String(i).padStart(2,'0')}`;
-                        
-                        // 取得當天所有符合的班表 (不再只抓第一筆)
-                        const shifts = schedules.value.filter(s => s.staff === printTarget.value && s.date === dStr && !s.isDeleted);
-                        
-                        days.push({ 
-                            dayNum: i, 
-                            isCurrent: true, 
-                            dateStr: dStr, 
-                            shifts: shifts // 回傳陣列
-                        });
-                    }
-                    return { label: `${y}年 ${m}月`, days };
-                });
-            });
-
             onMounted(() => {
                 db.ref('schedules').on('value', snap => {
                     isDBConnected.value = true;
                     if (snap.exists()) {
                         const data = snap.val();
                         schedules.value = Object.keys(data).map(k => data[k]);
-                    } else { schedules.value = []; }
+                    } else schedules.value = [];
+                });
+
+                db.ref('settings/printMonths').on('value', snap => {
+                    if (snap.exists()) printMonths.value = snap.val() || [];
+                    else printMonths.value = ['2026-10', '2026-11', '2026-12', '2027-01'];
+                    setTimeout(() => { isInitializingSettings = false; }, 800);
                 });
             });
 
-            const navClass = (view) => currentView.value === view ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-300 hover:text-white hover:bg-slate-700/50';
-            const printNow = () => window.print();
+            watch(printMonths, (newVal) => {
+                if (!isInitializingSettings) {
+                    isSavingSettings.value = true;
+                    db.ref('settings/printMonths').set(newVal).then(() => {
+                        setTimeout(() => { isSavingSettings.value = false; }, 500);
+                    });
+                }
+            }, { deep: true });
 
             return {
-                currentView, navClass, printTarget, printMonths, allMonths,
-                uniqueStaffList, selectedMonthData, groupedSummary, isDBConnected,
-                showLeftSidebar, showRightSidebar, calendarLayout, printNow,
-                syncGoogleSheet, isSyncing, showExportModal, showInput,
+                // Core & Navigation
+                currentView, isDBConnected, navClass,
                 
-                getShiftColorClass, formatLocationType,
-                filters, shiftModal, openShiftModal, confirmPreSchedule, requestDelete, cancelDelete, updateShiftTitle, batchDeletePreScheduled
+                // Settings & Sidebar
+                showLeftSidebar, showRightSidebar, calendarLayout,
+                printTarget, printMonths, allMonths, uniqueStaffList, contactInfo, isSavingSettings,
+                
+                // CSV & Sync
+                showInput, csvInput, processCSV,
+                showExportModal, exportStart, exportEnd, exportData,
+                syncGoogleSheet, isSyncing,
+
+                // Analysis & Stats
+                currentDisplayStats, analysisStats, getRowColor,
+
+                // Calendar Data
+                selectedMonthData, 
+
+                // Shift Editor, Add & Actions
+                showShiftEditor, editingShift, openShiftEditor,
+                showAddModal, newShiftForm, openAddShift, saveNewShift,
+                confirmOfficial, markAsDeleting, revertToPreScheduled, hardDeleteShift, batchDeletePreSchedules,
+                
+                // Filters & Right Sidebar
+                colorConfigs, activeFilters, toggleFilter, filteredList,
+                getShiftColorClass, getBorderColorClass,
+
+                // Utils
+                printNow
             };
         }
     }).mount('#app');
